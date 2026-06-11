@@ -1,0 +1,48 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Model files (too large for GitHub)
+models/*.pkl
+models/*.pt
+models/automl/__pycache__/
+
+# Data files (large)
+data/*.csv
+
+# Reports output
+reports/
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Customer profiles (generated at runtime)
+data/customer_profiles.json
+
+# Environment variables
+.env
+*.env
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Docker
+*.tar

@@ -1,0 +1,8 @@
+echo ".venv/
+__pycache__/
+*.pyc
+.git/
+mlruns/
+reports/
+data/customer_profiles.json
+*.log" > .dockerignore

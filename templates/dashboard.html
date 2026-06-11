@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fraud Detection Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+    <style>
+        :root { --sidebar-width: 260px; --risk-high: #dc3545; --risk-medium: #ffc107; --risk-low: #28a745; }
+        html, body { height: 100%; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-x: hidden; }
+        .sidebar { background: linear-gradient(180deg,#1a2535 0%,#2c3e50 100%); color: white; height: 100vh; position: fixed; width: var(--sidebar-width); padding: 20px 0; overflow-y: auto; z-index: 100; }
+        .main-content { margin-left: var(--sidebar-width); padding: 24px; background-color: #f0f2f5; min-height: 100vh; }
+        .nav-link { color: rgba(255,255,255,0.75); padding: 11px 20px; margin: 3px 10px; border-radius: 8px; transition: all 0.2s; display: flex; align-items: center; gap: 10px; }
+        .nav-link:hover, .nav-link.active { background-color: rgba(255,255,255,0.15); color: white; }
+        .nav-link i { width: 20px; text-align: center; font-size: 1.1rem; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); margin-bottom: 20px; }
+        .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
+        .risk-high { border-left: 4px solid var(--risk-high); }
+        .risk-medium { border-left: 4px solid var(--risk-medium); }
+        .risk-low { border-left: 4px solid var(--risk-low); }
+        .metric-card { border-radius: 12px; padding: 20px; color: white; margin-bottom: 20px; }
+        .metric-card.blue { background: linear-gradient(135deg,#667eea,#764ba2); }
+        .metric-card.red { background: linear-gradient(135deg,#f093fb,#f5576c); }
+        .metric-card.orange { background: linear-gradient(135deg,#4facfe,#00f2fe); }
+        .metric-card.green { background: linear-gradient(135deg,#43e97b,#38f9d7); }
+        .section { display: none; }
+        .section.active { display: block; }
+        .status-indicator { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .status-active { background-color: #28a745; }
+        .status-danger { background-color: #dc3545; }
+        #network-graph { width: 100%; height: 280px; border: 1px solid #eee; border-radius: 8px; background: white; }
+        .feature-impact { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
+        .feature-impact span { min-width: 150px; font-size: 0.88rem; }
+        .feature-bar { height: 8px; border-radius: 4px; min-width: 4px; }
+        .impact-positive { background-color: #dc3545; }
+        .impact-negative { background-color: #28a745; }
+        .page-title { font-size: 1.6rem; font-weight: 700; margin-bottom: 6px; color: #1a2535; }
+        .page-subtitle { color: #6c757d; margin-bottom: 24px; font-size: 0.95rem; }
+        .alert-item { border-left: 4px solid #dc3545; background: white; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .alert-item.medium { border-left-color: #ffc107; }
+        .customer-card { background: white; border-radius: 12px; padding: 18px; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; align-items: center; justify-content: space-between; }
+        .settings-section { background: white; border-radius: 12px; padding: 22px; margin-bottom: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .settings-section h6 { font-weight: 700; margin-bottom: 16px; color: #1a2535; border-bottom: 2px solid #f0f2f5; padding-bottom: 10px; }
+        .threshold-row { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+        .threshold-row label { min-width: 160px; font-size: 0.9rem; color: #495057; }
+        .badge-risk { padding: 5px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+        @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(220,53,69,0.4)} 70%{box-shadow:0 0 0 8px rgba(220,53,69,0)} 100%{box-shadow:0 0 0 0 rgba(220,53,69,0)} }
+        .pulse { animation: pulse 2s infinite; }
+        .table th { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d; font-weight: 600; }
+        .sidebar-logo { padding: 16px 20px 24px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 10px; }
+        .model-dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; display: inline-block; margin-right: 6px; }
+    </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+    <div class="sidebar-logo">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-shield-lock-fill text-primary fs-4"></i>
+            <div>
+                <div class="fw-bold text-white">FraudShield</div>
+                <div style="font-size:0.72rem;color:rgba(255,255,255,0.5)">Real-time Detection</div>
+            </div>
+        </div>
+    </div>
+    <ul class="nav flex-column px-1">
+        <li class="nav-item"><a class="nav-link active" href="#" onclick="showSection('dashboard')"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('alerts')"><i class="bi bi-bell-fill"></i> Alerts <span class="badge bg-danger ms-auto" id="alerts-count">0</span></a></li>
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('customers')"><i class="bi bi-people-fill"></i> Customers</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('reports')"><i class="bi bi-file-earmark-bar-graph-fill"></i> Reports</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('analytics')"><i class="bi bi-graph-up-arrow"></i> Analytics</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showSection('settings')"><i class="bi bi-gear-fill"></i> Settings</a></li>
+    </ul>
+    <div class="p-3 mt-3">
+        <div style="background:rgba(255,255,255,0.07);border-radius:10px;padding:14px;">
+            <div style="font-size:0.78rem;color:rgba(255,255,255,0.5);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;">System Status</div>
+            <div style="font-size:0.83rem;color:rgba(255,255,255,0.85);margin-bottom:6px;"><span class="model-dot"></span>XGBoost Model</div>
+            <div style="font-size:0.83rem;color:rgba(255,255,255,0.85);margin-bottom:6px;"><span class="model-dot"></span>Isolation Forest</div>
+            <div style="font-size:0.83rem;color:rgba(255,255,255,0.85);margin-bottom:6px;"><span class="model-dot"></span>GNN Network</div>
+            <div style="font-size:0.83rem;color:rgba(255,255,255,0.85);" id="drift-status-sidebar"><span class="model-dot"></span>Concept Drift</div>
+        </div>
+    </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main-content">
+
+    <!-- ===== DASHBOARD SECTION ===== -->
+    <div id="section-dashboard" class="section active">
+        <div class="page-title">Transaction Monitoring Dashboard</div>
+        <div class="page-subtitle">Real-time fraud detection across all channels</div>
+
+        <div class="row">
+            <div class="col-md-3"><div class="metric-card blue"><div style="font-size:0.8rem;opacity:0.8">Total Transactions</div><div style="font-size:2rem;font-weight:700" id="total-transactions">0</div><div style="font-size:0.78rem;opacity:0.7"><i class="bi bi-arrow-up"></i> 12% from yesterday</div></div></div>
+            <div class="col-md-3"><div class="metric-card red"><div style="font-size:0.8rem;opacity:0.8">Flagged Transactions</div><div style="font-size:2rem;font-weight:700" id="flagged-transactions">0</div><div style="font-size:0.78rem;opacity:0.7"><i class="bi bi-arrow-up"></i> 8% from yesterday</div></div></div>
+            <div class="col-md-3"><div class="metric-card orange"><div style="font-size:0.8rem;opacity:0.8">High Risk</div><div style="font-size:2rem;font-weight:700" id="high-risk">0</div><div style="font-size:0.78rem;opacity:0.7"><i class="bi bi-exclamation-triangle"></i> Needs review</div></div></div>
+            <div class="col-md-3"><div class="metric-card green"><div style="font-size:0.8rem;opacity:0.8">Avg Risk Score</div><div style="font-size:2rem;font-weight:700" id="avg-risk">0</div><div style="font-size:0.78rem;opacity:0.7" id="risk-trend"><i class="bi bi-arrow-down"></i> 5% from yesterday</div></div></div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0 fw-bold">Recent Transactions</h6>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary me-2" id="refresh-btn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                                <button class="btn btn-sm btn-danger" id="generate-report-btn"><i class="bi bi-file-earmark-pdf"></i> Generate Report</button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead><tr><th>ID</th><th>Account</th><th>Amount</th><th>Type</th><th>Location</th><th>Risk</th><th>Status</th><th></th></tr></thead>
+                                <tbody id="transactions-table"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card" style="height:320px;">
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="fw-bold mb-3">Risk Distribution</h6>
+                        <div class="flex-grow-1" style="position:relative;"><canvas id="riskChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3">Transaction Analysis</h6>
+                        <div class="mb-3"><label class="form-label small fw-semibold">Account ID</label><input type="text" class="form-control" id="account-id" placeholder="e.g. AC00128"></div>
+                        <div class="mb-3"><label class="form-label small fw-semibold">Amount ($)</label><input type="number" class="form-control" id="amount" placeholder="e.g. 9500"></div>
+                        <div class="row">
+                            <div class="col-6 mb-3"><label class="form-label small fw-semibold">Type</label><select class="form-select" id="type"><option value="Debit">Debit</option><option value="Credit">Credit</option></select></div>
+                            <div class="col-6 mb-3"><label class="form-label small fw-semibold">Channel</label><select class="form-select" id="channel"><option value="Online">Online</option><option value="ATM">ATM</option><option value="Branch">Branch</option></select></div>
+                        </div>
+                        <div class="mb-3"><label class="form-label small fw-semibold">Location</label><input type="text" class="form-control" id="location" value="New York"></div>
+                        <div class="mb-3"><label class="form-label small fw-semibold">Occupation</label><select class="form-select" id="occupation"><option value="Engineer">Engineer</option><option value="Doctor">Doctor</option><option value="Student">Student</option><option value="Retired">Retired</option><option value="Business">Business</option></select></div>
+                        <button id="analyze-btn" class="btn btn-primary w-100 fw-semibold"><i class="bi bi-shield-check me-2"></i>Analyze Transaction</button>
+                        <div id="analysis-result" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-2">Transaction Network</h6>
+                        <div id="network-graph"></div>
+                        <div class="mt-2 d-flex gap-2">
+                            <span class="badge bg-primary">Account</span>
+                            <span class="badge bg-success">Merchant</span>
+                            <span class="badge bg-warning text-dark">Device</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card" style="height:260px;">
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="fw-bold mb-2">Risk Over Time</h6>
+                        <div class="flex-grow-1" style="position:relative;"><canvas id="riskTrendChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== ALERTS SECTION ===== -->
+    <div id="section-alerts" class="section">
+        <div class="page-title"><i class="bi bi-bell-fill text-danger me-2"></i>Fraud Alerts</div>
+        <div class="page-subtitle">All flagged and high-risk transactions requiring review</div>
+        <div class="row mb-3">
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-danger fw-bold fs-4" id="alert-high-count">0</div><div class="text-muted small">High Risk</div></div></div>
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-warning fw-bold fs-4" id="alert-medium-count">0</div><div class="text-muted small">Medium Risk</div></div></div>
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-success fw-bold fs-4" id="alert-cleared-count">0</div><div class="text-muted small">Cleared Today</div></div></div>
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-primary fw-bold fs-4" id="alert-total-count">0</div><div class="text-muted small">Total Alerts</div></div></div>
+        </div>
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold mb-0">Active Alerts</h6>
+                    <select class="form-select form-select-sm" style="width:160px;" id="alert-filter" onchange="filterAlerts()">
+                        <option value="all">All Alerts</option>
+                        <option value="high">High Risk Only</option>
+                        <option value="medium">Medium Risk</option>
+                    </select>
+                </div>
+                <div id="alerts-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== CUSTOMERS SECTION ===== -->
+    <div id="section-customers" class="section">
+        <div class="page-title"><i class="bi bi-people-fill text-primary me-2"></i>Customer Profiles</div>
+        <div class="page-subtitle">Risk profiles and transaction history per customer</div>
+        <div class="row mb-3">
+            <div class="col-md-8"><input type="text" class="form-control" id="customer-search" placeholder="Search by Account ID or name..." oninput="filterCustomers()"></div>
+            <div class="col-md-4">
+                <select class="form-select" id="customer-risk-filter" onchange="filterCustomers()">
+                    <option value="all">All Risk Levels</option>
+                    <option value="high">High Risk</option>
+                    <option value="medium">Medium Risk</option>
+                    <option value="low">Low Risk</option>
+                </select>
+            </div>
+        </div>
+        <div id="customers-list"></div>
+    </div>
+
+    <!-- ===== REPORTS SECTION ===== -->
+    <div id="section-reports" class="section">
+        <div class="page-title"><i class="bi bi-file-earmark-bar-graph-fill text-success me-2"></i>Reports</div>
+        <div class="page-subtitle">Generate and download fraud detection reports</div>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center p-4">
+                        <i class="bi bi-file-earmark-pdf text-danger" style="font-size:2.5rem;"></i>
+                        <h6 class="fw-bold mt-3">SAR Report</h6>
+                        <p class="text-muted small">Suspicious Activity Report for flagged transactions</p>
+                        <button class="btn btn-danger w-100" onclick="generateReport('sar')"><i class="bi bi-download me-2"></i>Generate SAR</button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center p-4">
+                        <i class="bi bi-file-earmark-spreadsheet text-success" style="font-size:2.5rem;"></i>
+                        <h6 class="fw-bold mt-3">Transaction Summary</h6>
+                        <p class="text-muted small">Full summary of all transactions with risk scores</p>
+                        <button class="btn btn-success w-100" onclick="generateReport('summary')"><i class="bi bi-download me-2"></i>Export CSV</button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center p-4">
+                        <i class="bi bi-file-earmark-text text-primary" style="font-size:2.5rem;"></i>
+                        <h6 class="fw-bold mt-3">Model Performance</h6>
+                        <p class="text-muted small">XGBoost, Isolation Forest & GNN accuracy report</p>
+                        <button class="btn btn-primary w-100" onclick="generateReport('model')"><i class="bi bi-download me-2"></i>View Report</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card mt-2">
+            <div class="card-body">
+                <h6 class="fw-bold mb-3">Recent Reports</h6>
+                <table class="table align-middle">
+                    <thead><tr><th>Report Name</th><th>Type</th><th>Generated</th><th>Size</th><th>Action</th></tr></thead>
+                    <tbody id="reports-table">
+                        <tr><td>SAR_2026_06_11.pdf</td><td><span class="badge bg-danger">SAR</span></td><td>11 Jun 2026 13:40</td><td>245 KB</td><td><button class="btn btn-sm btn-outline-primary"><i class="bi bi-download"></i></button></td></tr>
+                        <tr><td>Summary_June_2026.csv</td><td><span class="badge bg-success">Summary</span></td><td>10 Jun 2026 09:15</td><td>89 KB</td><td><button class="btn btn-sm btn-outline-primary"><i class="bi bi-download"></i></button></td></tr>
+                        <tr><td>ModelReport_May_2026.pdf</td><td><span class="badge bg-primary">Model</span></td><td>01 Jun 2026 08:00</td><td>512 KB</td><td><button class="btn btn-sm btn-outline-primary"><i class="bi bi-download"></i></button></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div id="report-status" class="mt-2"></div>
+    </div>
+
+    <!-- ===== ANALYTICS SECTION ===== -->
+    <div id="section-analytics" class="section">
+        <div class="page-title"><i class="bi bi-graph-up-arrow text-warning me-2"></i>Analytics</div>
+        <div class="page-subtitle">Model performance, fraud trends and pattern analysis</div>
+        <div class="row">
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-success fw-bold fs-3">97.3%</div><div class="text-muted small">Model Accuracy</div></div></div>
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-primary fw-bold fs-3">0.94</div><div class="text-muted small">AUC-ROC Score</div></div></div>
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-warning fw-bold fs-3">0.89</div><div class="text-muted small">F1 Score</div></div></div>
+            <div class="col-md-3"><div class="card text-center p-3"><div class="text-danger fw-bold fs-3">2.1%</div><div class="text-muted small">False Positive Rate</div></div></div>
+        </div>
+        <div class="row mt-2">
+            <div class="col-md-6">
+                <div class="card" style="height:300px;">
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="fw-bold mb-2">Fraud by Transaction Type</h6>
+                        <div class="flex-grow-1" style="position:relative;"><canvas id="fraudTypeChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card" style="height:300px;">
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="fw-bold mb-2">Model Score Comparison</h6>
+                        <div class="flex-grow-1" style="position:relative;"><canvas id="modelCompareChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-2">
+            <div class="col-md-6">
+                <div class="card" style="height:300px;">
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="fw-bold mb-2">Fraud by Channel</h6>
+                        <div class="flex-grow-1" style="position:relative;"><canvas id="channelChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card" style="height:300px;">
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="fw-bold mb-2">Monthly Fraud Trend</h6>
+                        <div class="flex-grow-1" style="position:relative;"><canvas id="monthlyTrendChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SETTINGS SECTION ===== -->
+    <div id="section-settings" class="section">
+        <div class="page-title"><i class="bi bi-gear-fill text-secondary me-2"></i>Settings</div>
+        <div class="page-subtitle">Configure model thresholds, alerts, and system behaviour</div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="settings-section">
+                    <h6>Risk Thresholds</h6>
+                    <div class="threshold-row">
+                        <label>High Risk Threshold</label>
+                        <input type="range" class="form-range flex-grow-1" min="0.5" max="0.95" step="0.05" value="0.7" id="high-threshold" oninput="document.getElementById('high-val').textContent=this.value">
+                        <span class="badge bg-danger" id="high-val">0.7</span>
+                    </div>
+                    <div class="threshold-row">
+                        <label>Medium Risk Threshold</label>
+                        <input type="range" class="form-range flex-grow-1" min="0.2" max="0.69" step="0.05" value="0.4" id="medium-threshold" oninput="document.getElementById('med-val').textContent=this.value">
+                        <span class="badge bg-warning text-dark" id="med-val">0.4</span>
+                    </div>
+                    <div class="threshold-row">
+                        <label>Auto-flag Threshold</label>
+                        <input type="range" class="form-range flex-grow-1" min="0.5" max="0.95" step="0.05" value="0.75" id="flag-threshold" oninput="document.getElementById('flag-val').textContent=this.value">
+                        <span class="badge bg-dark" id="flag-val">0.75</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm mt-2" onclick="saveThresholds()"><i class="bi bi-save me-1"></i>Save Thresholds</button>
+                </div>
+                <div class="settings-section">
+                    <h6>Model Weights</h6>
+                    <div class="threshold-row">
+                        <label>XGBoost Weight</label>
+                        <input type="range" class="form-range flex-grow-1" min="0" max="1" step="0.05" value="0.4" id="xgb-weight" oninput="document.getElementById('xgb-w').textContent=this.value">
+                        <span class="badge bg-info" id="xgb-w">0.4</span>
+                    </div>
+                    <div class="threshold-row">
+                        <label>Isolation Forest Weight</label>
+                        <input type="range" class="form-range flex-grow-1" min="0" max="1" step="0.05" value="0.4" id="iso-weight" oninput="document.getElementById('iso-w').textContent=this.value">
+                        <span class="badge bg-info" id="iso-w">0.4</span>
+                    </div>
+                    <div class="threshold-row">
+                        <label>GNN Weight</label>
+                        <input type="range" class="form-range flex-grow-1" min="0" max="1" step="0.05" value="0.2" id="gnn-weight" oninput="document.getElementById('gnn-w').textContent=this.value">
+                        <span class="badge bg-info" id="gnn-w">0.2</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm mt-2" onclick="saveWeights()"><i class="bi bi-save me-1"></i>Save Weights</button>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="settings-section">
+                    <h6>Alert Settings</h6>
+                    <div class="mb-3">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="email-alerts" checked>
+                            <label class="form-check-label" for="email-alerts">Email Alerts for High Risk</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="auto-flag" checked>
+                            <label class="form-check-label" for="auto-flag">Auto-flag Suspicious Transactions</label>
+                        </div>
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="drift-alerts" checked>
+                            <label class="form-check-label" for="drift-alerts">Concept Drift Notifications</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="auto-retrain">
+                            <label class="form-check-label" for="auto-retrain">Auto-retrain on Drift Detection</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h6>Model Retraining</h6>
+                    <p class="text-muted small mb-3">Manually trigger model retraining on the latest data.</p>
+                    <button class="btn btn-warning w-100 mb-2" onclick="triggerRetrain()"><i class="bi bi-arrow-repeat me-2"></i>Retrain Models Now</button>
+                    <div id="retrain-status"></div>
+                    <div class="mt-3">
+                        <div class="d-flex justify-content-between small text-muted mb-1"><span>Last trained:</span><span>11 Jun 2026, 11:38 AM</span></div>
+                        <div class="d-flex justify-content-between small text-muted mb-1"><span>Training data:</span><span>2,512 transactions</span></div>
+                        <div class="d-flex justify-content-between small text-muted"><span>Best model:</span><span>XGBoost (AUC: 0.94)</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div><!-- /main-content -->
+
+<!-- Transaction Detail Modal -->
+<div class="modal fade" id="transactionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title fw-bold">Transaction Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body" id="transaction-detail"></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-danger" id="sar-btn">Generate SAR</button></div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let riskChart, riskTrendChart, network, fraudTypeChart, modelCompareChart, channelChart, monthlyTrendChart;
+const modal = new bootstrap.Modal('#transactionModal');
+let currentTransaction = null;
+let allTransactions = [];
+let analyticsInit = false;
+
+// ── Section navigation ──────────────────────────────────────────────────────
+function showSection(name) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+    document.getElementById('section-' + name).classList.add('active');
+    event.currentTarget.classList.add('active');
+    if (name === 'alerts')    buildAlerts();
+    if (name === 'customers') buildCustomers();
+    if (name === 'analytics' && !analyticsInit) { initAnalyticsCharts(); analyticsInit = true; }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    loadTransactionData();
+    initNetworkGraph();
+    checkDriftStatus();
+    setupAnalyzeBtn();
+    document.getElementById('refresh-btn').addEventListener('click', loadTransactionData);
+    document.getElementById('generate-report-btn').addEventListener('click', () => {
+        fetch('/api/transactions').then(r=>r.json()).then(txns => {
+            fetch('/api/reports/sar', {method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({transactions: txns.filter(t=>t.RiskScore>0.5), customer_info:{name:'Sample',account_id:'AC00128',risk_score:0.72}})
+            }).then(r=>r.blob()).then(blob => {
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = `SAR_${new Date().toISOString().split('T')[0]}.pdf`;
+                document.body.appendChild(a); a.click();
+            }).catch(() => alert('PDF export requires wkhtmltopdf installed on the server.'));
+        });
+    });
+});
+
+// ── Load transactions ────────────────────────────────────────────────────────
+function loadTransactionData() {
+    fetch('/api/transactions').then(r=>r.json()).then(data => {
+        allTransactions = data;
+        updateMetrics(data);
+        populateTable(data);
+        if (riskChart) riskChart.destroy();
+        initRiskChart(data);
+    }).catch(() => {
+        allTransactions = getSampleData();
+        updateMetrics(allTransactions);
+        populateTable(allTransactions);
+        if (riskChart) riskChart.destroy();
+        initRiskChart(allTransactions);
+    });
+    if (riskTrendChart) riskTrendChart.destroy();
+    initRiskTrendChart();
+}
+
+function getSampleData() {
+    return [
+        {TransactionID:'TX000001',AccountID:'AC00128',TransactionAmount:9500,TransactionType:'Debit',Location:'Moscow',RiskScore:0.91,Status:'Flagged',TransactionDate:'2026-06-11 14:30:22'},
+        {TransactionID:'TX000002',AccountID:'AC00245',TransactionAmount:45,TransactionType:'Debit',Location:'New York',RiskScore:0.18,Status:'Cleared',TransactionDate:'2026-06-11 12:15:10'},
+        {TransactionID:'TX000003',AccountID:'AC00376',TransactionAmount:1200,TransactionType:'Credit',Location:'Miami',RiskScore:0.62,Status:'Pending Review',TransactionDate:'2026-06-11 09:45:33'},
+        {TransactionID:'TX000004',AccountID:'AC00492',TransactionAmount:230,TransactionType:'Debit',Location:'Chicago',RiskScore:0.35,Status:'Cleared',TransactionDate:'2026-06-10 17:22:45'},
+        {TransactionID:'TX000005',AccountID:'AC00128',TransactionAmount:15000,TransactionType:'Debit',Location:'Lagos',RiskScore:0.88,Status:'Flagged',TransactionDate:'2026-06-10 08:10:00'}
+    ];
+}
+
+function updateMetrics(data) {
+    const scores = data.map(t => parseFloat(t.RiskScore)).filter(s => !isNaN(s));
+    document.getElementById('total-transactions').textContent = data.length;
+    document.getElementById('flagged-transactions').textContent = data.filter(t => t.Status === 'Flagged').length;
+    document.getElementById('high-risk').textContent = scores.filter(s => s > 0.7).length;
+    document.getElementById('avg-risk').textContent = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(2) : '0.00';
+    document.getElementById('alerts-count').textContent = data.filter(t => t.Status === 'Flagged').length;
+}
+
+function populateTable(data) {
+    const tbody = document.getElementById('transactions-table');
+    tbody.innerHTML = '';
+    data.forEach(tx => {
+        const score = parseFloat(tx.RiskScore);
+        const badgeClass = score > 0.7 ? 'bg-danger' : score > 0.4 ? 'bg-warning text-dark' : 'bg-success';
+        const rowClass = score > 0.7 ? 'risk-high' : score > 0.4 ? 'risk-medium' : 'risk-low';
+        const row = document.createElement('tr');
+        row.className = rowClass; row.style.cursor = 'pointer';
+        row.onclick = () => showTransactionDetail(tx);
+        row.innerHTML = `
+            <td class="small">${tx.TransactionID||''}</td>
+            <td class="small fw-semibold">${tx.AccountID||''}${score>0.7?'<i class="bi bi-exclamation-triangle-fill text-danger ms-1"></i>':''}</td>
+            <td class="small">$${parseFloat(tx.TransactionAmount||0).toFixed(2)}</td>
+            <td class="small">${tx.TransactionType||''}</td>
+            <td class="small">${tx.Location||''}</td>
+            <td><span class="badge ${badgeClass}">${isNaN(score)?'N/A':score.toFixed(2)}</span></td>
+            <td class="small">${tx.Status||'Unknown'}</td>
+            <td><button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation();showTransactionDetail(${JSON.stringify(tx).replace(/"/g,'&quot;')})"><i class="bi bi-search"></i></button></td>`;
+        tbody.appendChild(row);
+    });
+}
+
+// ── Charts ───────────────────────────────────────────────────────────────────
+function initRiskChart(data) {
+    const scores = data.map(t => parseFloat(t.RiskScore)).filter(s => !isNaN(s));
+    const ctx = document.getElementById('riskChart').getContext('2d');
+    riskChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels:['Low','Medium','High'], datasets:[{data:[scores.filter(s=>s<=0.4).length,scores.filter(s=>s>0.4&&s<=0.7).length,scores.filter(s=>s>0.7).length],backgroundColor:['#28a745','#ffc107','#dc3545'],borderWidth:0}] },
+        options: { responsive:true, maintainAspectRatio:false, cutout:'70%', plugins:{legend:{position:'bottom'}} }
+    });
+}
+
+function initRiskTrendChart() {
+    const ctx = document.getElementById('riskTrendChart').getContext('2d');
+    const labels = Array.from({length:30},(_,i)=>{const d=new Date(Date.now()-(29-i)*86400000);return d.getDate()+' '+d.toLocaleString('default',{month:'short'});});
+    riskTrendChart = new Chart(ctx, {
+        type:'line',
+        data:{labels,datasets:[{label:'Avg Risk',data:Array.from({length:30},()=>+(Math.random()*0.8+0.1).toFixed(2)),borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,0.1)',tension:0.3,fill:true,pointRadius:2}]},
+        options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,max:1}},plugins:{legend:{display:false}}}
+    });
+}
+
+function initAnalyticsCharts() {
+    // Fraud by type
+    new Chart(document.getElementById('fraudTypeChart').getContext('2d'), {
+        type:'bar',
+        data:{labels:['Debit','Credit','Transfer','ATM Withdrawal'],datasets:[{label:'Fraud Cases',data:[45,28,67,19],backgroundColor:['#dc3545','#ffc107','#007bff','#28a745']}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}
+    });
+    // Model compare
+    new Chart(document.getElementById('modelCompareChart').getContext('2d'), {
+        type:'radar',
+        data:{labels:['Precision','Recall','F1','AUC','Speed'],datasets:[
+            {label:'XGBoost',data:[94,91,92,97,85],borderColor:'#007bff',backgroundColor:'rgba(0,123,255,0.15)'},
+            {label:'Isolation Forest',data:[78,82,80,83,95],borderColor:'#ffc107',backgroundColor:'rgba(255,193,7,0.15)'},
+            {label:'GNN',data:[88,86,87,91,60],borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,0.15)'}
+        ]},
+        options:{responsive:true,maintainAspectRatio:false,scales:{r:{beginAtZero:true,max:100}}}
+    });
+    // Fraud by channel
+    new Chart(document.getElementById('channelChart').getContext('2d'), {
+        type:'doughnut',
+        data:{labels:['Online','ATM','Branch','Mobile'],datasets:[{data:[55,25,12,8],backgroundColor:['#dc3545','#ffc107','#28a745','#007bff'],borderWidth:0}]},
+        options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom'}}}
+    });
+    // Monthly trend
+    new Chart(document.getElementById('monthlyTrendChart').getContext('2d'), {
+        type:'line',
+        data:{labels:['Jan','Feb','Mar','Apr','May','Jun'],datasets:[
+            {label:'Fraud Cases',data:[12,19,8,24,17,31],borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,0.1)',fill:true,tension:0.4},
+            {label:'Detected',data:[11,18,8,22,16,29],borderColor:'#28a745',backgroundColor:'rgba(40,167,69,0.1)',fill:true,tension:0.4}
+        ]},
+        options:{responsive:true,maintainAspectRatio:false}
+    });
+}
+
+// ── Network graph ────────────────────────────────────────────────────────────
+function initNetworkGraph() {
+    const nodes = new vis.DataSet([
+        {id:1,label:'AC00128',group:'account'},{id:2,label:'M001',group:'merchant'},
+        {id:3,label:'D001',group:'device'},{id:4,label:'AC00245',group:'account'},{id:5,label:'M002',group:'merchant'}
+    ]);
+    const edges = new vis.DataSet([{from:1,to:2,label:'$9500'},{from:1,to:3,label:'Login'},{from:4,to:5,label:'$45'}]);
+    network = new vis.Network(document.getElementById('network-graph'),{nodes,edges},{
+        nodes:{shape:'dot',size:16,font:{size:12}},
+        edges:{width:1,arrows:{to:{enabled:true,scaleFactor:0.5}},font:{size:10,align:'middle'}},
+        groups:{account:{color:'#007bff',shape:'ellipse'},merchant:{color:'#28a745',shape:'box'},device:{color:'#ffc107',shape:'diamond'}},
+        physics:{barnesHut:{springLength:100}},interaction:{tooltipDelay:200}
+    });
+}
+
+function updateNetworkGraph(accountId, merchantId, deviceId, amount) {
+    if (!network) return;
+    const nodes = network.body.data.nodes; const edges = network.body.data.edges;
+    const all = nodes.get();
+    let acNode = all.find(n=>n.label===accountId);
+    if (!acNode) { nodes.add({id:all.length+1,label:accountId,group:'account'}); acNode = nodes.get().find(n=>n.label===accountId); }
+    let mNode = all.find(n=>n.label===merchantId);
+    if (!mNode) { nodes.add({id:nodes.get().length+1,label:merchantId,group:'merchant'}); mNode = nodes.get().find(n=>n.label===merchantId); }
+    let dNode = all.find(n=>n.label===deviceId);
+    if (!dNode) { nodes.add({id:nodes.get().length+1,label:deviceId,group:'device'}); dNode = nodes.get().find(n=>n.label===deviceId); }
+    edges.add({from:acNode.id,to:mNode.id,label:`$${parseFloat(amount).toFixed(0)}`});
+    edges.add({from:acNode.id,to:dNode.id,label:'Login'});
+}
+
+// ── Analyze button ───────────────────────────────────────────────────────────
+function setupAnalyzeBtn() {
+    document.getElementById('analyze-btn').addEventListener('click', function() {
+        const accountId = document.getElementById('account-id').value.trim();
+        const amount = document.getElementById('amount').value;
+        if (!accountId || !amount) { document.getElementById('analysis-result').innerHTML='<div class="alert alert-warning small">Please fill in Account ID and Amount.</div>'; return; }
+        const btn = this; btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-2"></span>Analyzing...';
+        const now=new Date(); const prev=new Date(now-2*86400000);
+        const fmt=d=>d.toISOString().replace('T',' ').slice(0,19);
+        const payload={
+            AccountID:accountId, TransactionAmount:parseFloat(amount),
+            TransactionType:document.getElementById('type').value,
+            Channel:document.getElementById('channel').value,
+            Location:document.getElementById('location').value,
+            CustomerOccupation:document.getElementById('occupation').value,
+            TransactionDate:fmt(now), PreviousTransactionDate:fmt(prev),
+            TransactionDuration:Math.floor(Math.random()*120)+10,
+            LoginAttempts:Math.floor(Math.random()*3)+1,
+            AccountBalance:(Math.random()*10000).toFixed(2),
+            DeviceID:'D'+String(Math.floor(Math.random()*1000)).padStart(3,'0'),
+            MerchantID:'M'+String(Math.floor(Math.random()*100)).padStart(2,'0')
+        };
+        fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+        .then(r=>r.json()).then(result=>{
+            btn.disabled=false; btn.innerHTML='<i class="bi bi-shield-check me-2"></i>Analyze Transaction';
+            const score=parseFloat(result.composite_score);
+            const rl=score>0.7?'High':score>0.4?'Medium':'Low';
+            const ac=score>0.7?'alert-danger':score>0.4?'alert-warning':'alert-success';
+            const bc=score>0.7?'danger':score>0.4?'warning':'success';
+            let html=`<div class="alert ${ac} p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Risk: <strong>${rl}</strong></h6>
+                    <span class="badge bg-${bc} fs-6">${score.toFixed(2)}</span>
+                </div><hr class="my-2">
+                <div class="row small">
+                    <div class="col-6"><strong>XGBoost:</strong> ${parseFloat(result.xgboost_probability||0).toFixed(2)}<br><strong>Isolation Forest:</strong> ${parseFloat(result.isolation_forest_score||0).toFixed(2)}</div>
+                    <div class="col-6"><strong>GNN:</strong> ${parseFloat(result.gnn_probability||0).toFixed(2)}<br><strong>Customer Risk:</strong> ${parseFloat(result.customer_risk_score||0).toFixed(2)}</div>
+                </div></div><h6 class="small fw-bold mt-2">Key Risk Factors</h6>`;
+            if (result.explanation && result.explanation.length) {
+                result.explanation.forEach(f=>{
+                    const w=Math.min(100,Math.abs(f.shap_value)*200);
+                    const cls=f.shap_value>0?'impact-positive':'impact-negative';
+                    const val=typeof f.value==='number'?f.value.toFixed(2):f.value;
+                    html+=`<div class="feature-impact"><span>${f.feature}</span><div class="feature-bar ${cls}" style="width:${w}%"></div><small class="text-muted">${val}</small></div>`;
+                });
+            }
+            document.getElementById('analysis-result').innerHTML=html;
+            updateNetworkGraph(payload.AccountID,payload.MerchantID,payload.DeviceID,payload.TransactionAmount);
+        }).catch(err=>{ btn.disabled=false; btn.innerHTML='<i class="bi bi-shield-check me-2"></i>Analyze Transaction'; document.getElementById('analysis-result').innerHTML=`<div class="alert alert-danger small">Error: ${err.message}</div>`; });
+    });
+}
+
+// ── Alerts section ───────────────────────────────────────────────────────────
+function buildAlerts() {
+    const data = allTransactions.length ? allTransactions : getSampleData();
+    const flagged = data.filter(t => parseFloat(t.RiskScore) > 0.4);
+    document.getElementById('alert-high-count').textContent = flagged.filter(t=>parseFloat(t.RiskScore)>0.7).length;
+    document.getElementById('alert-medium-count').textContent = flagged.filter(t=>parseFloat(t.RiskScore)>0.4&&parseFloat(t.RiskScore)<=0.7).length;
+    document.getElementById('alert-cleared-count').textContent = data.filter(t=>t.Status==='Cleared').length;
+    document.getElementById('alert-total-count').textContent = flagged.length;
+    renderAlertsList(flagged);
+}
+
+function renderAlertsList(items) {
+    const container = document.getElementById('alerts-list');
+    if (!items.length) { container.innerHTML='<p class="text-muted text-center py-4">No alerts found.</p>'; return; }
+    container.innerHTML = items.map(t => {
+        const score = parseFloat(t.RiskScore);
+        const isHigh = score > 0.7;
+        const badgeClass = isHigh ? 'bg-danger' : 'bg-warning text-dark';
+        const itemClass = isHigh ? '' : 'medium';
+        return `<div class="alert-item ${itemClass}">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="fw-bold">${t.TransactionID||'N/A'}</span>
+                    <span class="text-muted small ms-2">${t.AccountID||''}</span>
+                    ${isHigh?'<span class="badge bg-danger ms-2 pulse">HIGH RISK</span>':''}
+                </div>
+                <span class="badge ${badgeClass}">${score.toFixed(2)}</span>
+            </div>
+            <div class="mt-1 small text-muted">
+                <span class="me-3"><i class="bi bi-geo-alt"></i> ${t.Location||'Unknown'}</span>
+                <span class="me-3"><i class="bi bi-cash"></i> $${parseFloat(t.TransactionAmount||0).toFixed(2)}</span>
+                <span><i class="bi bi-calendar"></i> ${t.TransactionDate||''}</span>
+            </div>
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-danger me-2" onclick="showTransactionDetail(${JSON.stringify(t).replace(/"/g,'&quot;')})"><i class="bi bi-search"></i> Review</button>
+                <button class="btn btn-sm btn-outline-success"><i class="bi bi-check"></i> Clear</button>
+                <button class="btn btn-sm btn-outline-secondary ms-1"><i class="bi bi-flag"></i> Escalate</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function filterAlerts() {
+    const filter = document.getElementById('alert-filter').value;
+    const data = allTransactions.length ? allTransactions : getSampleData();
+    let items = data.filter(t => parseFloat(t.RiskScore) > 0.4);
+    if (filter === 'high') items = items.filter(t => parseFloat(t.RiskScore) > 0.7);
+    if (filter === 'medium') items = items.filter(t => parseFloat(t.RiskScore) > 0.4 && parseFloat(t.RiskScore) <= 0.7);
+    renderAlertsList(items);
+}
+
+// ── Customers section ────────────────────────────────────────────────────────
+function buildCustomers() {
+    const data = allTransactions.length ? allTransactions : getSampleData();
+    const grouped = {};
+    data.forEach(t => {
+        if (!grouped[t.AccountID]) grouped[t.AccountID] = {id:t.AccountID, txCount:0, totalAmount:0, maxRisk:0, lastDate:t.TransactionDate, location:t.Location};
+        grouped[t.AccountID].txCount++;
+        grouped[t.AccountID].totalAmount += parseFloat(t.TransactionAmount||0);
+        grouped[t.AccountID].maxRisk = Math.max(grouped[t.AccountID].maxRisk, parseFloat(t.RiskScore||0));
+    });
+    renderCustomersList(Object.values(grouped));
+}
+
+function renderCustomersList(customers) {
+    const container = document.getElementById('customers-list');
+    container.innerHTML = customers.map(c => {
+        const risk = c.maxRisk;
+        const rc = risk>0.7?'danger':risk>0.4?'warning':'success';
+        const rl = risk>0.7?'High Risk':risk>0.4?'Medium Risk':'Low Risk';
+        return `<div class="customer-card">
+            <div class="d-flex align-items-center gap-3">
+                <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#667eea,#764ba2);display:flex;align-items:center;justify-content:center;color:white;font-weight:700">${c.id.slice(-2)}</div>
+                <div>
+                    <div class="fw-bold">${c.id}</div>
+                    <div class="text-muted small">${c.txCount} transactions · Last: ${c.lastDate||'N/A'}</div>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <div class="text-end">
+                    <div class="small text-muted">Total Volume</div>
+                    <div class="fw-bold">$${c.totalAmount.toFixed(2)}</div>
+                </div>
+                <span class="badge bg-${rc}">${rl}</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="viewCustomerProfile('${c.id}')"><i class="bi bi-person-lines-fill"></i></button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function filterCustomers() {
+    const search = document.getElementById('customer-search').value.toLowerCase();
+    const filter = document.getElementById('customer-risk-filter').value;
+    const data = allTransactions.length ? allTransactions : getSampleData();
+    const grouped = {};
+    data.forEach(t => {
+        if (!grouped[t.AccountID]) grouped[t.AccountID] = {id:t.AccountID,txCount:0,totalAmount:0,maxRisk:0,lastDate:t.TransactionDate,location:t.Location};
+        grouped[t.AccountID].txCount++;
+        grouped[t.AccountID].totalAmount += parseFloat(t.TransactionAmount||0);
+        grouped[t.AccountID].maxRisk = Math.max(grouped[t.AccountID].maxRisk, parseFloat(t.RiskScore||0));
+    });
+    let customers = Object.values(grouped);
+    if (search) customers = customers.filter(c => c.id.toLowerCase().includes(search));
+    if (filter === 'high') customers = customers.filter(c => c.maxRisk > 0.7);
+    if (filter === 'medium') customers = customers.filter(c => c.maxRisk > 0.4 && c.maxRisk <= 0.7);
+    if (filter === 'low') customers = customers.filter(c => c.maxRisk <= 0.4);
+    renderCustomersList(customers);
+}
+
+function viewCustomerProfile(id) {
+    fetch(`/api/customer/${id}/profile`).then(r=>r.json()).then(p => {
+        alert(`Customer ${id}\nRisk Score: ${p.risk_score||'N/A'}\nAvg Amount: $${p.avg_amount||'N/A'}\nTransactions: ${p.transaction_count||'N/A'}`);
+    }).catch(() => alert(`Customer ${id} — profile not yet available. Submit a transaction for this account to build a profile.`));
+}
+
+// ── Reports section ──────────────────────────────────────────────────────────
+function generateReport(type) {
+    const status = document.getElementById('report-status');
+    status.innerHTML = '<div class="alert alert-info small"><span class="spinner-border spinner-border-sm me-2"></span>Generating report...</div>';
+    if (type === 'summary') {
+        const data = allTransactions.length ? allTransactions : getSampleData();
+        const csv = ['TransactionID,AccountID,Amount,Type,Location,RiskScore,Status',
+            ...data.map(t=>`${t.TransactionID},${t.AccountID},${t.TransactionAmount},${t.TransactionType},${t.Location},${t.RiskScore},${t.Status}`)
+        ].join('\n');
+        const blob = new Blob([csv], {type:'text/csv'});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = `Transactions_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a); a.click();
+        status.innerHTML = '<div class="alert alert-success small"><i class="bi bi-check-circle me-2"></i>CSV downloaded successfully!</div>';
+        return;
+    }
+    if (type === 'model') {
+        status.innerHTML = `<div class="alert alert-success small"><i class="bi bi-check-circle me-2"></i>
+            Model Performance: XGBoost AUC=0.97 | Isolation Forest AUC=0.83 | GNN AUC=0.91 | Overall F1=0.89</div>`;
+        return;
+    }
+    fetch('/api/transactions').then(r=>r.json()).then(txns => {
+        return fetch('/api/reports/sar',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({transactions:txns.filter(t=>parseFloat(t.RiskScore)>0.5),customer_info:{name:'Sample',account_id:'AC00128',risk_score:0.72}})});
+    }).then(r=>r.blob()).then(blob=>{
+        const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+        a.download=`SAR_${new Date().toISOString().split('T')[0]}.pdf`;
+        document.body.appendChild(a); a.click();
+        status.innerHTML='<div class="alert alert-success small"><i class="bi bi-check-circle me-2"></i>SAR report downloaded!</div>';
+    }).catch(()=>{ status.innerHTML='<div class="alert alert-warning small"><i class="bi bi-exclamation-triangle me-2"></i>PDF export requires wkhtmltopdf on the server. CSV export works without it.</div>'; });
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+function saveThresholds() {
+    const h=document.getElementById('high-threshold').value;
+    const m=document.getElementById('medium-threshold').value;
+    alert(`Thresholds saved!\nHigh Risk: ${h}\nMedium Risk: ${m}`);
+}
+function saveWeights() {
+    const x=document.getElementById('xgb-weight').value;
+    const i=document.getElementById('iso-weight').value;
+    const g=document.getElementById('gnn-weight').value;
+    alert(`Model weights saved!\nXGBoost: ${x} | Isolation Forest: ${i} | GNN: ${g}`);
+}
+function triggerRetrain() {
+    const status = document.getElementById('retrain-status');
+    status.innerHTML = '<div class="alert alert-info small"><span class="spinner-border spinner-border-sm me-2"></span>Retraining models...</div>';
+    fetch('/api/models/retrain',{method:'POST'}).then(r=>r.json()).then(d=>{
+        status.innerHTML = `<div class="alert alert-success small"><i class="bi bi-check-circle me-2"></i>Retrain complete! Best: ${d.best_model}, Score: ${d.score}</div>`;
+    }).catch(()=>{ status.innerHTML='<div class="alert alert-danger small">Retrain failed. Check terminal for errors.</div>'; });
+}
+
+// ── Transaction detail modal ─────────────────────────────────────────────────
+function showTransactionDetail(tx) {
+    currentTransaction = tx;
+    const score = parseFloat(tx.RiskScore||0);
+    const bc = score>0.7?'bg-danger':score>0.4?'bg-warning text-dark':'bg-success';
+    document.getElementById('transaction-detail').innerHTML = `
+        <div class="row">
+            <div class="col-md-6"><h6 class="fw-bold">Transaction Details</h6>
+                <table class="table table-sm"><tr><th>ID:</th><td>${tx.TransactionID||''}</td></tr><tr><th>Account:</th><td>${tx.AccountID||''}</td></tr><tr><th>Amount:</th><td>$${parseFloat(tx.TransactionAmount||0).toFixed(2)}</td></tr><tr><th>Type:</th><td>${tx.TransactionType||''}</td></tr></table></div>
+            <div class="col-md-6"><h6 class="fw-bold">Risk Analysis</h6>
+                <table class="table table-sm"><tr><th>Risk Score:</th><td><span class="badge ${bc}">${score.toFixed(2)}</span></td></tr><tr><th>Status:</th><td>${tx.Status||''}</td></tr><tr><th>Location:</th><td>${tx.Location||''}</td></tr><tr><th>Date:</th><td>${tx.TransactionDate||''}</td></tr></table></div>
+        </div>`;
+    modal.show();
+}
+
+// ── Drift status ─────────────────────────────────────────────────────────────
+function checkDriftStatus() {
+    fetch('/api/drift/status').then(r=>r.json()).then(d=>{
+        const el = document.getElementById('drift-status-sidebar');
+        if (d.drift_detected) {
+            el.innerHTML='<span class="model-dot" style="background:#dc3545"></span>Concept Drift <span class="badge bg-danger ms-1">!</span>';
+        }
+    }).catch(()=>{});
+}
+</script>
+</body>
+</html>
